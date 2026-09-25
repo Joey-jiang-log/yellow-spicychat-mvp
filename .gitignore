@@ -1,5 +1,7 @@
 node_modules/
 dist/
+sources/
+AGENTS.md
 *.tsbuildinfo
 .env
 .env.*
