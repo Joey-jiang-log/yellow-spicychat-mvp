@@ -1,0 +1,12 @@
+.chat-intro .intro-greeting {
+  max-width: 520px;
+  margin: 14px auto 0;
+  padding: 12px 15px;
+  background: #141414;
+  border: 1px solid #2c2c2c;
+  border-radius: 7px;
+  color: #c7c7c7;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+}

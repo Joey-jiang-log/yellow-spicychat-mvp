@@ -1,0 +1,28 @@
+@media (max-width: 767px) {
+  .icon-button,
+  .favorite-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .modal-close {
+    width: 40px;
+    height: 40px;
+  }
+
+  .send-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Keep the sticky header below the fixed demo notice while scrolling. */
+.topbar {
+  top: 26px;
+}
+
+@media (max-width: 767px) {
+  .topbar {
+    top: 0;
+  }
+}
