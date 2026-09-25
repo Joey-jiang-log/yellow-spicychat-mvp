@@ -1,6 +1,6 @@
 # GitHub sync workflow
 
-The project source belongs in the private `yellow-spicychat-mvp` GitHub repository. Keep the synced `sources/` directory and unrelated project-mirror files out of Git.
+The intended remote is a private `yellow-spicychat-mvp` GitHub repository. It has not been created yet. Keep the synced `sources/` directory and unrelated project-mirror files out of Git.
 
 For every demo update:
 
