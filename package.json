@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "backend": "node --env-file-if-exists=.env.local server/index.mjs",
+    "dev:backend": "node --env-file-if-exists=.env.local server/index.mjs",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

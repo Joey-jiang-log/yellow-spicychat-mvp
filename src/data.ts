@@ -4,10 +4,25 @@ export type Character = {
   tagline: string;
   tags: string[];
   image: string;
+  coverImage?: string;
   objectPosition?: string;
   greeting: string;
   persona: string;
+  scenario?: string;
+  initialMessages?: string[];
+  exampleDialogues?: Array<{ user: string; character: string }>;
+  memoryEnabled?: boolean;
+  sceneImagesEnabled?: boolean;
+  proactiveMessagesEnabled?: boolean;
+  advancedModelEnabled?: boolean;
+  visibility?: "public" | "private";
+  contentRating?: "general" | "mature";
+  createdAt?: number;
+  createdBy?: string;
 };
+
+export const getCharacterProfilePhotos = (character: Pick<Character, "image" | "coverImage">) =>
+  [...new Set([character.image, character.coverImage].filter((photo): photo is string => Boolean(photo)))];
 
 export const TAGS = ["All", "Female", "Male", "Non-binary", "Romance", "Fantasy", "Cozy", "Adventure"];
 

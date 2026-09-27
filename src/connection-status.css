@@ -1,0 +1,4 @@
+.backend-connection { color: #91d6a5; }
+.backend-offline .backend-connection { color: #e49aa0; }
+.backend-loading .backend-connection { color: #d8c291; }
+.chat-bubble-image { display: block; width: min(100%, 280px); max-height: 360px; margin: 12px 0 3px; border-radius: 9px; object-fit: cover; border: 1px solid rgba(255,255,255,.12); }

@@ -10,3 +10,6 @@ AGENTS.md
 coverage/
 playwright-report/
 test-results/
+data/
+public/uploads/*
+!public/uploads/.gitkeep

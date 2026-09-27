@@ -1,0 +1,78 @@
+:root {
+  --lureva-rose: #e866b0;
+  --lureva-plum: #a66af0;
+}
+
+.app-sidebar {
+  background:
+    radial-gradient(ellipse 210px 170px at 14% 0%, rgba(151, 62, 145, .17), transparent 78%),
+    radial-gradient(ellipse 180px 220px at 100% 100%, rgba(92, 58, 157, .1), transparent 78%),
+    #171717;
+}
+
+.brand-word {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  color: #f4f1f6;
+}
+
+.brand-word em {
+  color: var(--lureva-rose);
+  font-style: normal;
+  text-shadow: 0 0 18px rgba(232, 102, 176, .26);
+}
+
+.page-frame {
+  background-image:
+    radial-gradient(ellipse 58% 28% at 68% 0%, rgba(107, 48, 140, .105), transparent 82%),
+    radial-gradient(ellipse 44% 34% at 6% 100%, rgba(135, 39, 86, .055), transparent 82%);
+}
+
+.nav-item.active {
+  box-shadow: inset 2px 0 0 var(--lureva-plum);
+}
+
+.premium-sidebar {
+  background: linear-gradient(112deg, rgba(67, 39, 74, .9), rgba(38, 31, 63, .94));
+  border-color: rgba(161, 105, 204, .48);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 0 24px rgba(106, 51, 133, .1);
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.premium-sidebar:hover {
+  border-color: rgba(209, 131, 236, .72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 26px rgba(155, 68, 164, .2);
+  transform: translateY(-1px);
+}
+
+.character-card {
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+
+.character-card:hover {
+  border-color: rgba(178, 105, 211, .7);
+  box-shadow: 0 8px 26px rgba(83, 34, 105, .18);
+  transform: translateY(-2px);
+}
+
+.chat-brand-accent {
+  color: var(--lureva-rose);
+  text-shadow: 0 0 17px rgba(232, 102, 176, .25);
+}
+
+.chat-premium-cta:not(.is-active) {
+  background: linear-gradient(112deg, rgba(67, 34, 74, .72), rgba(34, 29, 62, .78));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-sidebar,
+  .character-card {
+    transition: none;
+  }
+
+  .premium-sidebar:hover,
+  .character-card:hover {
+    transform: none;
+  }
+}

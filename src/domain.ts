@@ -5,6 +5,7 @@ export const FREE_LIMIT = 20;
 export const PAID_LIMIT = 1000;
 export const PLAN = { price: "$9.99", interval: "month", replies: 1000, memory: "Longer memory" } as const;
 export const STORAGE_KEY = "yellow-demo-state-v1";
+export const STORAGE_BACKUP_KEY = `${STORAGE_KEY}-corrupt-backup`;
 
 export type Role = "user" | "assistant";
 export type MessageStatus = "saved" | "pending" | "streaming" | "failed";
@@ -17,6 +18,8 @@ export type ChatMessage = {
   createdAt: number;
   variants?: MessageVariant[];
   activeVariantId?: string;
+  imageUrl?: string | null;
+  imageTitle?: string | null;
 };
 export type Conversation = {
   id: string;
@@ -35,12 +38,32 @@ export type DemoState = {
   favorites: string[];
   conversations: Record<string, Conversation>;
   drafts: Record<string, string>;
+  customCharacters: Character[];
 };
 export type DemoBillingOutcome = "success" | "failed" | "canceled" | "pending";
 
+export const orderChatSessions = (characters: Character[], conversations: Record<string, Conversation>, activeCharacterId: string, query = "") => {
+  const charactersById = new Map(characters.map((character) => [character.id, character]));
+  const seen = new Set<string>();
+  const recent = Object.values(conversations)
+    .filter((conversation) => conversation.messages.some((message) => message.status === "saved" || message.status === "failed"))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((conversation) => charactersById.get(conversation.characterId))
+    .filter((character): character is Character => {
+      if (!character || seen.has(character.id)) return false;
+      seen.add(character.id);
+      return true;
+    });
+  const sessions = recent.slice(0, 6);
+  const activeCharacter = charactersById.get(activeCharacterId);
+  if (activeCharacter && !sessions.some((character) => character.id === activeCharacterId)) sessions.push(activeCharacter);
+  const normalizedQuery = query.trim().toLowerCase();
+  return sessions.filter((character) => character.name.toLowerCase().includes(normalizedQuery));
+};
+
 export const emptyState = (): DemoState => ({
   userId: null, usageCommitted: 0, usageReserved: 0,
-  subscription: { status: "free", periodEnd: null, committed: 0 }, favorites: [], conversations: {}, drafts: {},
+  subscription: { status: "free", periodEnd: null, committed: 0 }, favorites: [], conversations: {}, drafts: {}, customCharacters: [],
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,6 +84,8 @@ const normalizeMessage = (value: unknown, index: number): ChatMessage | null => 
     createdAt: nonNegativeInt(value.createdAt, Date.now()),
     ...(variants?.length ? { variants } : {}),
     ...(typeof value.activeVariantId === "string" ? { activeVariantId: value.activeVariantId } : {}),
+    ...(typeof value.imageUrl === "string" || value.imageUrl === null ? { imageUrl: value.imageUrl as string | null } : {}),
+    ...(typeof value.imageTitle === "string" || value.imageTitle === null ? { imageTitle: value.imageTitle as string | null } : {}),
   };
 };
 
@@ -100,6 +125,20 @@ export const normalizeState = (value: unknown): DemoState => {
   }
   const drafts: Record<string, string> = {};
   if (isRecord(value.drafts)) Object.entries(value.drafts).forEach(([key, draft]) => { if (typeof draft === "string") drafts[key] = draft; });
+  const customCharacters: Character[] = Array.isArray(value.customCharacters) ? value.customCharacters.filter(isRecord).flatMap((raw) => {
+    if (typeof raw.id !== "string" || !raw.id.startsWith("custom-") || typeof raw.name !== "string" || typeof raw.tagline !== "string" || typeof raw.image !== "string" || typeof raw.greeting !== "string" || typeof raw.persona !== "string") return [];
+    const tags = Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === "string").slice(0, 12) : [];
+    return [{
+      id: raw.id, name: raw.name.slice(0, 40), tagline: raw.tagline.slice(0, 120), image: raw.image.slice(0, 1_500_000), greeting: raw.greeting.slice(0, 2000), persona: raw.persona.slice(0, 5000), tags,
+      ...(typeof raw.coverImage === "string" ? { coverImage: raw.coverImage.slice(0, 1_500_000) } : {}),
+      ...(typeof raw.scenario === "string" ? { scenario: raw.scenario.slice(0, 5000) } : {}),
+      ...(Array.isArray(raw.initialMessages) ? { initialMessages: raw.initialMessages.filter((item): item is string => typeof item === "string").slice(0, 5).map((item) => item.slice(0, 2000)) } : {}),
+      ...(Array.isArray(raw.exampleDialogues) ? { exampleDialogues: raw.exampleDialogues.filter(isRecord).slice(0, 10).flatMap((item) => typeof item.user === "string" && typeof item.character === "string" ? [{ user: item.user.slice(0, 1000), character: item.character.slice(0, 1000) }] : []) } : {}),
+      memoryEnabled: raw.memoryEnabled === true, sceneImagesEnabled: raw.sceneImagesEnabled === true, proactiveMessagesEnabled: raw.proactiveMessagesEnabled === true, advancedModelEnabled: raw.advancedModelEnabled === true,
+      visibility: raw.visibility === "private" ? "private" as const : "public" as const, contentRating: raw.contentRating === "mature" ? "mature" as const : "general" as const,
+      ...(typeof raw.createdBy === "string" ? { createdBy: raw.createdBy.slice(0, 120) } : {}), createdAt: nonNegativeInt(raw.createdAt),
+    }];
+  }) : [];
   return {
     userId: typeof value.userId === "string" && value.userId ? value.userId : null,
     usageCommitted: nonNegativeInt(value.usageCommitted),
@@ -112,6 +151,7 @@ export const normalizeState = (value: unknown): DemoState => {
     favorites: Array.isArray(value.favorites) ? value.favorites.filter((favorite): favorite is string => typeof favorite === "string") : [],
     conversations,
     drafts,
+    customCharacters,
   };
 };
 
@@ -125,17 +165,31 @@ export const recoverInterruptedGeneration = (state: DemoState) => {
   return state;
 };
 
-export const loadState = (): DemoState => {
+export const loadState = (recoverInterrupted = true): DemoState => {
   if (typeof window === "undefined") return emptyState();
+  let raw: string | null = null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyState();
-    return recoverInterruptedGeneration(normalizeState(JSON.parse(raw)));
-  } catch { return emptyState(); }
+    const state = normalizeState(JSON.parse(raw));
+    return recoverInterrupted ? recoverInterruptedGeneration(state) : state;
+  } catch (error) {
+    if (raw && error instanceof SyntaxError) {
+      try { if (!window.localStorage.getItem(STORAGE_BACKUP_KEY)) window.localStorage.setItem(STORAGE_BACKUP_KEY, raw); } catch { /* Storage may itself be unavailable. */ }
+    }
+    return emptyState();
+  }
+};
+
+export const hasCorruptStateBackup = () => {
+  if (typeof window === "undefined") return false;
+  try { return window.localStorage.getItem(STORAGE_BACKUP_KEY) !== null; } catch { return false; }
 };
 
 export const saveState = (state: DemoState) => {
-  if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (typeof window === "undefined") return true;
+  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; }
+  catch { return false; }
 };
 
 export const quotaLimit = (state: DemoState) => state.subscription.status === "active" ? PAID_LIMIT : FREE_LIMIT;
@@ -206,6 +260,17 @@ export const extractMemory = (conversation: Conversation, latestUserText: string
 };
 
 export const streamText = async (content: string, onDelta: (value: string) => void) => {
-  const chunks = content.match(/.{1,12}/gs) ?? [content];
-  for (const chunk of chunks) { await new Promise((resolve) => window.setTimeout(resolve, 45)); onDelta(chunk); }
+  const paragraphs = content.replace(/\r\n?/g, "\n").split(/\n\s*\n+/u).map((part) => part.trim()).filter(Boolean);
+  const segments = paragraphs.length ? paragraphs : [content];
+  for (const [paragraphIndex, paragraph] of segments.entries()) {
+    if (paragraphIndex > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, 260));
+      onDelta("\n\n");
+    }
+    const characters = Array.from(paragraph);
+    for (let offset = 0; offset < characters.length; offset += 28) {
+      await new Promise((resolve) => window.setTimeout(resolve, 28));
+      onDelta(characters.slice(offset, offset + 28).join(""));
+    }
+  }
 };
