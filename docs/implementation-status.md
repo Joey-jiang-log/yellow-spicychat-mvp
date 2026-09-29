@@ -1,6 +1,12 @@
 # Yellow MVP implementation status
 
-Updated: 2026-09-14
+Updated: 2026-09-29
+
+## Privacy and memory update (2026-09-29)
+
+- Local API public chat now requires a signed `HttpOnly; SameSite=Lax` browser-session cookie. Conversation list/read, send, and regenerate use the cookie subject; client-supplied `userId` values are ignored. Production mode refuses to issue sessions if `YELLOW_SESSION_SECRET` is missing. Integration verification covers forged IDs and cross-session reads.
+- Each saved conversation stores deterministic, conversation-only memory (explicit name/preferences plus an extractive summary of older turns). The server injects that memory into subsequent model context alongside the recent transcript. Regenerate rebuilds memory from the transcript prefix without the replaced answer.
+- This is anonymous browser-session isolation, not registered accounts. It does not provide cross-device identity. The currently deployed Vercel target is static; absent an API and durable hosted database, its simulated chats remain in per-browser-profile localStorage. Production privacy/auth/database verification remains BLOCKED.
 
 ## Current stage
 
@@ -17,6 +23,7 @@ Updated: 2026-09-14
 | --- | --- | --- | --- |
 | Shared character fixtures | `src/data.ts`, `public/characters/*.png` | Main | 12 original adult, non-explicit demo characters |
 | Domain / persistence boundary | `src/domain.ts` | Main / Domain responsibility | localStorage-isolated demo state; service replacement must be server-side |
+| Server session and chat memory | `server/session-auth.mjs`, `server/index.mjs`, `tests/chat-stream.test.mjs` | Main / Domain responsibility | Signed browser-bound anonymous session; production secret required; memory is conversation-scoped |
 | Routes / UI / responsive behavior | `src/App.tsx`, `src/styles.css` | Main / UI responsibility | `/`, `/chat/:characterId`, `/subscribe`, `/me` |
 | Automated domain checks | `tests/domain.test.ts` | Main / QA responsibility | Vitest deterministic fixtures |
 

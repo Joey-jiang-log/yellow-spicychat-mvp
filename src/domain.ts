@@ -7,6 +7,21 @@ export const PLAN = { price: "$9.99", interval: "month", replies: 1000, memory: 
 export const STORAGE_KEY = "yellow-demo-state-v1";
 export const STORAGE_BACKUP_KEY = `${STORAGE_KEY}-corrupt-backup`;
 
+export const readSessionValue = (key: string): string | null => {
+  try { return typeof window === "undefined" ? null : window.sessionStorage.getItem(key); }
+  catch { return null; }
+};
+
+export const writeSessionValue = (key: string, value: string) => {
+  try { if (typeof window === "undefined") return false; window.sessionStorage.setItem(key, value); return true; }
+  catch { return false; /* Session storage may be disabled; the page can still work without it. */ }
+};
+
+export const removeSessionValue = (key: string) => {
+  try { if (typeof window !== "undefined") window.sessionStorage.removeItem(key); }
+  catch { /* Session storage may be disabled; the page can still work without it. */ }
+};
+
 export type Role = "user" | "assistant";
 export type MessageStatus = "saved" | "pending" | "streaming" | "failed";
 export type MessageVariant = { id: string; content: string; createdAt: number };
@@ -20,12 +35,14 @@ export type ChatMessage = {
   activeVariantId?: string;
   imageUrl?: string | null;
   imageTitle?: string | null;
+  sceneId?: string;
 };
 export type Conversation = {
   id: string;
   characterId: string;
   messages: ChatMessage[];
   pendingRegenerateText?: string;
+  pendingRegenerateRequestId?: string;
   updatedAt: number;
   contextRevision: number;
   memory: { userFacts: string[]; storyState: string; summaryThrough: string | null; contextRevision: number };
@@ -61,6 +78,19 @@ export const orderChatSessions = (characters: Character[], conversations: Record
   return sessions.filter((character) => character.name.toLowerCase().includes(normalizedQuery));
 };
 
+export const matchesCharacterSearch = (character: Character, query: string) => {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return true;
+  const searchableText = [character.name, character.tagline, ...character.tags, character.persona].join(" ").toLocaleLowerCase();
+  return searchableText.includes(normalizedQuery);
+};
+
+export const shouldHydrateServerConversation = (local: Conversation | undefined, serverUpdatedAt: number) =>
+  Number.isFinite(serverUpdatedAt) && serverUpdatedAt >= 0 && (!local || (
+    !local.messages.some((message) => message.status === "pending" || message.status === "streaming") &&
+    serverUpdatedAt > local.updatedAt
+  ));
+
 export const emptyState = (): DemoState => ({
   userId: null, usageCommitted: 0, usageReserved: 0,
   subscription: { status: "free", periodEnd: null, committed: 0 }, favorites: [], conversations: {}, drafts: {}, customCharacters: [],
@@ -86,6 +116,7 @@ const normalizeMessage = (value: unknown, index: number): ChatMessage | null => 
     ...(typeof value.activeVariantId === "string" ? { activeVariantId: value.activeVariantId } : {}),
     ...(typeof value.imageUrl === "string" || value.imageUrl === null ? { imageUrl: value.imageUrl as string | null } : {}),
     ...(typeof value.imageTitle === "string" || value.imageTitle === null ? { imageTitle: value.imageTitle as string | null } : {}),
+    ...(typeof value.sceneId === "string" ? { sceneId: value.sceneId } : {}),
   };
 };
 
@@ -100,6 +131,7 @@ const normalizeConversation = (value: unknown, key: string): Conversation | null
     characterId,
     messages: Array.isArray(value.messages) ? value.messages.map(normalizeMessage).filter((message): message is ChatMessage => Boolean(message)) : [],
     ...(typeof value.pendingRegenerateText === "string" ? { pendingRegenerateText: value.pendingRegenerateText } : {}),
+    ...(typeof value.pendingRegenerateRequestId === "string" ? { pendingRegenerateRequestId: value.pendingRegenerateRequestId } : {}),
     updatedAt: nonNegativeInt(value.updatedAt, Date.now()),
     contextRevision,
     memory: {
@@ -130,7 +162,7 @@ export const normalizeState = (value: unknown): DemoState => {
     const tags = Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === "string").slice(0, 12) : [];
     return [{
       id: raw.id, name: raw.name.slice(0, 40), tagline: raw.tagline.slice(0, 120), image: raw.image.slice(0, 1_500_000), greeting: raw.greeting.slice(0, 2000), persona: raw.persona.slice(0, 5000), tags,
-      ...(typeof raw.coverImage === "string" ? { coverImage: raw.coverImage.slice(0, 1_500_000) } : {}),
+      ...(typeof raw.coverImage === "string" && raw.coverImage !== raw.image ? { coverImage: raw.coverImage.slice(0, 1_500_000) } : {}),
       ...(typeof raw.scenario === "string" ? { scenario: raw.scenario.slice(0, 5000) } : {}),
       ...(Array.isArray(raw.initialMessages) ? { initialMessages: raw.initialMessages.filter((item): item is string => typeof item === "string").slice(0, 5).map((item) => item.slice(0, 2000)) } : {}),
       ...(Array.isArray(raw.exampleDialogues) ? { exampleDialogues: raw.exampleDialogues.filter(isRecord).slice(0, 10).flatMap((item) => typeof item.user === "string" && typeof item.character === "string" ? [{ user: item.user.slice(0, 1000), character: item.character.slice(0, 1000) }] : []) } : {}),
@@ -195,6 +227,7 @@ export const saveState = (state: DemoState) => {
 export const quotaLimit = (state: DemoState) => state.subscription.status === "active" ? PAID_LIMIT : FREE_LIMIT;
 export const quotaUsed = (state: DemoState) => state.subscription.status === "active" ? state.subscription.committed : state.usageCommitted;
 export const quotaRemaining = (state: DemoState) => Math.max(0, quotaLimit(state) - quotaUsed(state) - state.usageReserved);
+export const shouldOpenPaywall = (remainingReplies: number) => remainingReplies <= 0;
 
 export const reserveReply = (state: DemoState) => {
   if (quotaRemaining(state) <= 0 || state.usageReserved > 0) return false;

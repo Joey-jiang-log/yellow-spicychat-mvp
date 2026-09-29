@@ -46,8 +46,8 @@
 .chat-heading-copy { min-width: 0; flex: 1; display: grid; gap: 5px; }
 .chat-heading-copy>strong { display: flex; align-items: center; gap: 6px; font-size: 19px; line-height: 1; }
 .chat-heading-copy>strong svg { color: #fff; stroke: #fff; }
-.chat-heading-copy>span { display: flex; align-items: center; gap: 7px; color: #00d46a; font-size: 14px; }
-.chat-heading-copy>span i { width: 10px; height: 10px; border-radius: 50%; background: #00d46a; }
+.chat-heading-copy>span { display: flex; align-items: center; gap: 7px; color: #aa9ab5; font-size: 14px; }
+.chat-heading-copy>span i { width: 8px; height: 8px; border-radius: 50%; background: #b882e8; }
 .chat-action-buttons { display: flex; align-items: center; gap: 16px; }
 .chat-action-buttons button { width: 34px; height: 40px; display: grid; place-items: center; background: transparent; color: #f3f3f3; }
 .chat-action-buttons button:hover { color: #d9b2ff; }

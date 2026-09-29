@@ -1,0 +1,16 @@
+# Deploy only the public Vite app. Keep local/private data out of the upload.
+.env*
+data/
+dist/
+node_modules/
+public/uploads/
+public/characters/*.png
+server/
+sources/
+tests/
+docs/
+AGENTS.md
+*.docx
+*.py
+design-qa.md
+tsconfig.tsbuildinfo

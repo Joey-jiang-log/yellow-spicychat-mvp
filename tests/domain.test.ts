@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDemoBillingOutcome, buildReply, commitReply, emptyState, extractMemory, hasCorruptStateBackup, loadState, makeConversation, normalizeState, orderChatSessions, quotaRemaining, recoverInterruptedGeneration, releaseReply, reserveReply, saveState, STORAGE_BACKUP_KEY, STORAGE_KEY, streamText } from "../src/domain";
+import { applyDemoBillingOutcome, buildReply, commitReply, emptyState, extractMemory, hasCorruptStateBackup, loadState, makeConversation, matchesCharacterSearch, normalizeState, orderChatSessions, quotaRemaining, readSessionValue, recoverInterruptedGeneration, releaseReply, removeSessionValue, reserveReply, saveState, shouldHydrateServerConversation, shouldOpenPaywall, STORAGE_BACKUP_KEY, STORAGE_KEY, streamText, writeSessionValue } from "../src/domain";
 import { CHARACTERS, getCharacter, getCharacterProfilePhotos } from "../src/data";
 
 function withWindowStorage<T>(entries: Record<string, string>, run: (storage: { getItem: (key: string) => string | null; setItem: (key: string, value: string) => void; removeItem: (key: string) => void }) => T) {
@@ -15,6 +15,10 @@ function withWindowStorage<T>(entries: Record<string, string>, run: (storage: { 
 }
 
 describe("demo quota authority", () => {
+  it("opens the paywall only after the last free reply has been consumed", () => {
+    expect(shouldOpenPaywall(1)).toBe(false);
+    expect(shouldOpenPaywall(0)).toBe(true);
+  });
   it("uses one shared free bucket and cannot reserve past the limit", () => {
     const state = emptyState(); state.usageCommitted = 19;
     expect(quotaRemaining(state)).toBe(1); expect(reserveReply(state)).toBe(true); expect(reserveReply(state)).toBe(false);
@@ -46,10 +50,19 @@ describe("demo quota authority", () => {
     const state = normalizeState({ conversations: { luna: { characterId: "luna", pendingRegenerateText: "retry this version", messages: [] } } });
     expect(state.conversations.luna.pendingRegenerateText).toBe("retry this version");
   });
+  it("preserves a selected scene on the message so retry and regenerate keep its context", () => {
+    const state = normalizeState({ conversations: { sashimi: { characterId: "sashimi", messages: [{ id: "user-scene", role: "user", content: "Let’s take a quiet break.", sceneId: "cafe" }] } } });
+    expect(state.conversations.sashimi.messages[0].sceneId).toBe("cafe");
+  });
   it("persists and bounds custom character data for discover and chat", () => {
     const state = normalizeState({ customCharacters: [{ id: "custom-test", name: "Natalie", tagline: "A kind photographer", image: "/portrait.png", greeting: "Hi there", persona: "Warm and curious", tags: ["Romance", 3], visibility: "private", contentRating: "mature", initialMessages: ["One", 8], exampleDialogues: [{ user: "Hello", character: "Hey" }, { user: 4, character: "invalid" }], memoryEnabled: true, createdBy: "local", createdAt: 9 }, { id: "luna", name: "Not custom", tagline: "", image: "", greeting: "", persona: "" }] });
     expect(state.customCharacters).toHaveLength(1);
     expect(state.customCharacters[0]).toMatchObject({ id: "custom-test", visibility: "private", contentRating: "mature", tags: ["Romance"], initialMessages: ["One"], exampleDialogues: [{ user: "Hello", character: "Hey" }], memoryEnabled: true });
+  });
+  it("removes a duplicate custom cover image from legacy saved state", () => {
+    const state = normalizeState({ customCharacters: [{ id: "custom-image", name: "Portrait", tagline: "A test portrait", image: "data:image/png;base64,portrait", coverImage: "data:image/png;base64,portrait", greeting: "Hello", persona: "Warm" }] });
+    expect(state.customCharacters[0].image).toBe("data:image/png;base64,portrait");
+    expect(state.customCharacters[0]).not.toHaveProperty("coverImage");
   });
   it("only grants demo Premium for a verified success with a billing period", () => {
     const outcomes = ["failed", "canceled", "pending"] as const;
@@ -102,7 +115,47 @@ describe("chat session ordering", () => {
   });
 });
 
+describe("character discovery search", () => {
+  it("matches names, taglines, tags, and character concepts case-insensitively", () => {
+    const character = CHARACTERS.find((item) => item.id === "luna")!;
+    expect(matchesCharacterSearch(character, "luna")).toBe(true);
+    expect(matchesCharacterSearch(character, character.tags[0].toLowerCase())).toBe(true);
+    expect(matchesCharacterSearch(character, "city awake")).toBe(true);
+    expect(matchesCharacterSearch(character, "radio host")).toBe(true);
+    expect(matchesCharacterSearch(character, "  ")).toBe(true);
+    expect(matchesCharacterSearch(character, "space pirate")).toBe(false);
+  });
+});
+
+describe("server conversation hydration", () => {
+  it("accepts only newer server snapshots and never replaces a live local send", () => {
+    const local = makeConversation("luna");
+    local.updatedAt = 20;
+    local.messages = [{ id: "local", role: "user", content: "new message", status: "saved", createdAt: 20 }];
+    expect(shouldHydrateServerConversation(local, 21)).toBe(true);
+    expect(shouldHydrateServerConversation(local, 20)).toBe(false);
+    expect(shouldHydrateServerConversation(local, 19)).toBe(false);
+    expect(shouldHydrateServerConversation(local, Number.NaN)).toBe(false);
+
+    local.messages.push({ id: "pending", role: "assistant", content: "", status: "streaming", createdAt: 22 });
+    expect(shouldHydrateServerConversation(local, 100)).toBe(false);
+    expect(shouldHydrateServerConversation(undefined, 1)).toBe(true);
+  });
+});
+
 describe("browser persistence recovery", () => {
+  it("treats blocked session storage as optional without crashing the app", () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { get sessionStorage() { throw new DOMException("Blocked", "SecurityError"); } } });
+    try {
+      expect(readSessionValue("draft")).toBeNull();
+      expect(writeSessionValue("draft", "hello")).toBe(false);
+      expect(() => removeSessionValue("draft")).not.toThrow();
+    } finally {
+      if (previous) Object.defineProperty(globalThis, "window", previous);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
   it("can read an in-flight reservation without recovering it in another live tab", () => withWindowStorage({
     [STORAGE_KEY]: JSON.stringify({ usageReserved: 1, conversations: { luna: { characterId: "luna", messages: [{ id: "u1", role: "user", content: "hold on", status: "pending", createdAt: 1 }] } } }),
   }, () => {

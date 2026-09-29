@@ -53,27 +53,27 @@ The local CUA browser pass is available for the deterministic demo flows; target
 | P10 | Return to original chat | PASS | Pricing opened with `returnTo=%2Fchat%2Fluna`; after opening checkout preview, keyboard activation of Back to Yellow returned to `/chat/luna` with the existing transcript and composer. No payment or entitlement mutation occurred. |
 | P11 | History remains readable after billing state change | PASS | The returned Rowan chat still showed its full saved history and switched to `1,000 replies left this billing period`; real entitlement lifecycle remains unavailable. |
 | M01 | Long-term two-fact recall | BLOCKED | Real model and persisted context unavailable. |
-| M02 | Correct name/preference facts | BLOCKED | Deterministic extractor is unit-tested only; browser/model evidence missing. |
+| M02 | Correct name/preference facts | PASS | Production-mode fake-provider integration confirmed `Call me Rowan` is persisted as conversation memory and injected into the next model request; real-model recall remains unverified. |
 | M03 | Regenerate removes discarded plot from context | BLOCKED | Requires real model/context evidence. |
 | M04 | Stale summary revision race | BLOCKED | Requires async summary service. |
 | M05 | Summary failure/budget overflow | BLOCKED | Requires summary service. |
-| M06 | User/character memory isolation | BLOCKED | Requires account-backed storage. |
+| M06 | User/character memory isolation | PASS | Production-mode API integration created two signed browser sessions; one session could not list the other's transcript even when supplying the other session ID in the query. Memory is stored per conversation; registered-account isolation remains unavailable. |
 | M07 | Expired Premium shorter context | BLOCKED | Requires real entitlement and context service. |
 | M08 | Prompt injection cannot read others | BLOCKED | Requires server-backed isolation test. |
 | U01 | Three conversations sort by recent | BLOCKED | Current demo browser shows recent conversations in updated-at order and returns to the `#recent` section after opening one; three-conversation fixture evidence remains incomplete. |
 | U02 | Favorite toggle and refresh | PASS | CUA toggled Luna to Favorite, navigated to `/me`, and the Favorites section showed Luna. |
 | U03 | Manage current subscription | BLOCKED | Demo Manage subscription now gives an inline status without a disruptive browser alert; the real billing portal remains unavailable. |
 | U04 | Logout A/login B isolation | BLOCKED | Real multi-account backend unavailable. |
-| E01 | Build/lint/typecheck/unit/e2e command check | PASS | `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` passed in the latest recorded regression; `npm test` reports 3 files / 15 tests. No e2e runner is installed, so browser evidence is recorded manually through CUA plus a temporary local HTTP integration test. |
+| E01 | Build/lint/typecheck/unit/e2e command check | PASS | `npm run typecheck`, `npm test`, and `npm run build` passed on 2026-09-29; Vitest reports 11 files / 49 tests. `git diff --check` passed. Browser UI verification was unavailable in this run. |
 | E02 | Keys and logs | BLOCKED | Requires bundle/security inspection with real integrations. |
-| E03 | Cross-account authorization | BLOCKED | Public-character integration coverage now verifies draft visibility and prompt exclusion. Conversation endpoints still trust caller-supplied `userId`; real account authorization/isolation remains unimplemented. |
+| E03 | Cross-account authorization | PASS (anonymous-session scope) | Production-mode local HTTP integration verified signed-cookie ownership, query/body ID spoofing resistance, and cross-session list isolation. Registered accounts, hosted database, and deployed Vercel API remain unimplemented. |
 | E04 | Markdown/XSS | BLOCKED | React text rendering avoids raw HTML; no browser security suite was run. |
 | E05 | Mode isolation | BLOCKED | Demo banner and `DEMO_MODE` exist; production misconfiguration test requires deployment. |
 | E06 | Modal focus/accessibility | BLOCKED | Browser keyboard test now confirms initial Close focus, Tab cycles Close → Back to Yellow → Close, Escape closes and restores focus to the triggering plan CTA. Full assistive-technology verification remains unavailable. Login Tab/Shift+Tab checks previously passed. |
 | E07 | Mobile keyboard/safe area | BLOCKED | Requires mobile browser capture. |
 | E08 | Performance budget | BLOCKED | No Lighthouse runner or fixed device environment was available. |
 | E09 | External latency | BLOCKED | A DeepSeek server integration exists, but no live request or latency measurement was made in this regression; deterministic fixture timing is not reported as real latency. |
-| E10 | Auth/request protection | BLOCKED | A local API server exists, but it trusts a shared demo identity and lacks production authentication/account isolation, CSRF protections, and rate limiting. |
+| E10 | Auth/request protection | BLOCKED | Shared demo identity removed from local public chat routes; signed browser sessions are covered by tests. Real authentication, deployed persistent API, CSRF hardening beyond SameSite cookie policy, and rate limiting remain outstanding. |
 | V01 | Global frame | BLOCKED | Browser screenshot comparison unavailable. |
 | V02 | Card crop and fields | BLOCKED | Browser screenshot comparison unavailable. |
 | V03 | Chat reading column/composer | BLOCKED | Browser screenshot comparison unavailable. |
