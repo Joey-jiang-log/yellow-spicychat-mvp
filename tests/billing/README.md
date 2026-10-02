@@ -60,3 +60,8 @@ plus fixtures billing the yearly amounts.
 engine has no fee-ledger surface, so fee settlement is **[OUT-OF-SCOPE]**:
 the binding verifies the terms only as pure arithmetic from the
 constants (`test_lane_terms_arithmetic`), not as engine behavior.
+Behavioral economics validation (real money movement) is handed to the
+user: see the economics validation guide in the suite repo,
+`payment-proving-ground/tests/subscription/docs/economics-validation-guide.md`
+(P1 of the test-suite polish plan) — provider test paths with cost, steps,
+record templates, and evidence labels per path.
