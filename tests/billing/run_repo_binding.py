@@ -1,187 +1,71 @@
 # [SIM] — synthetic test wiring only. No live provider credentials.
-"""Repo binding run: prove the existing suite green against the repo's catalog.
+"""Repo binding run — thin script. Every mechanic is the toolkit's
+(tests/subscription/bind/): catalog loading, spec validation, fixture
+driving (including negative-path expect_verdict sequences), conformance,
+report. Shared harness (bind/harness.py) owns the battery subprocess +
+fixture loading.
+
+The repo contributes ONLY its spec (binding_spec.py), its own
+commercial facts as assertions (test_lane_terms_arithmetic — pure
+arithmetic on the repo's quoted lane terms, NOT binding mechanics),
+and this thin orchestration.
 
 What this does (in order):
   1. Runs the FULL existing battery as-is (tests/subscription/run_all.py)
-     via subprocess — unmodified. The count is parsed from the battery's
-     own summary line, never hardcoded (a hardcoded count rots the moment
-     the suite gains a test — caught 2026-10-02: the summary said 156/156
-     while the suite ran 159).
+     via the harness — unmodified. The count is parsed from the
+     battery's own summary line, never hardcoded.
   2. Runs the adapter contract battery as-is
-     (tests/subscription/run_adapter_contract.py) via subprocess — unmodified.
-  3. Repo-binding checks (this file): builds a suite Engine carrying the
-     repo's real plans (repo_catalog.py), drives each provider's key
-     fixtures through the REAL adapters (CCBill == MobiusPay lane,
-     Verotel), shims the resulting engine subscription status through
-     outcome_shim.py into the repo's DemoBillingOutcome vocabulary, and
-     asserts it matches EXPECTED_OUTCOME.
+     (tests/subscription/run_adapter_contract.py) via the harness.
+  3. Toolkit binding checks: drives each spec sequence through the REAL
+     adapters (CCBill == MobiusPay lane, Verotel) into a spec-planned
+     engine and verifies actual engine statuses match the spec's
+     declared terminals — plus the toolkit's shim() agreeing with the
+     declared outcome on the observed status (both consumers, one
+     table). The unknown-plan upgrade is a negative-path sequence
+     (expect_verdict="rejected"): the suite's merchant-config guard
+     failing closed is the repo's own finding, expressed as data.
+  4. Lane-terms arithmetic (repo facts, not toolkit mechanics).
+  5. Conformance via the spec + honest-label evidence report.
 
-A failure in (3) is a repo-vs-suite mismatch and is reported as the
+A failure in (3)/(4) is a repo-vs-spec mismatch and is reported as the
 finding — the suite is never "fixed" to make the binding pass.
 
 Usage:  python3 tests/billing/run_repo_binding.py
         (from the repo root; SUITE_DIR env may override the suite path)
 """
 import os
-import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
-
 sys.path.insert(0, HERE)
 
-from repo_catalog import (  # noqa: E402
-    add_repo_plans,
-    resolve_suite_dir,
-    REPO_PLANS,
-    MOBIUSPAY_LANE_TERMS,
-)
-
-SUITE_DIR = resolve_suite_dir()
-PPG_ROOT = os.path.join(os.path.dirname(SUITE_DIR), "..", "..")
-
+SUITE_DIR = os.environ.get(
+    "SUITE_DIR",
+    os.path.normpath(os.path.join(HERE, "..", "..", "..",
+                                  "payment-proving-ground", "tests",
+                                  "subscription")))
 sys.path.insert(0, SUITE_DIR)
-sys.path.insert(0, PPG_ROOT)
+sys.path.insert(0, os.path.normpath(os.path.join(SUITE_DIR, "..", "..")))
 
-from outcome_shim import shim, EXPECTED_OUTCOME, NO_OP_EVENTS  # noqa: E402
-from engine import Engine, FakeGateway, FakeClock  # noqa: E402
-from run_adapter_contract import adapter_factories  # noqa: E402
+from binding_spec import (  # noqa: E402
+    build_spec, SEQUENCES, PLANS, MOBIUSPAY_LANE_TERMS)
+from bind.drive import run_binding_checks  # noqa: E402
+from bind.harness import run_battery_counts, load_fixture_factories  # noqa: E402
+from bind.report import EvidenceReport  # noqa: E402
 
-RESULTS = []
-
-
-def check(name, fn):
-    try:
-        fn()
-        RESULTS.append((name, True, ""))
-        print(f"  PASS  {name}")
-    except AssertionError as e:
-        RESULTS.append((name, False, str(e)))
-        print(f"  FAIL  {name}: {e}")
-    except Exception as e:  # noqa: BLE001
-        RESULTS.append((name, False, f"{type(e).__name__}: {e}"))
-        print(f"  ERROR {name}: {type(e).__name__}: {e}")
-
-
-def run_existing_battery(path, label):
-    """Run an existing suite battery as-is.
-
-    Returns (ok, count_str): count_str is parsed from the battery's own
-    summary line (e.g. "159/159"), never hardcoded.
-    """
-    print(f"\n== {label} (as-is) ==")
-    r = subprocess.run([sys.executable, path], capture_output=True, text=True,
-                       cwd=os.path.dirname(path))
-    tail = "\n".join(r.stdout.strip().splitlines()[-4:])
-    print(tail)
-    count = "?"
-    m = re.search(r"(\d+)/(\d+) green", r.stdout)
-    if m:
-        count = f"{m.group(1)}/{m.group(2)}"
-    if r.returncode != 0:
-        print(f"!! {label} exited {r.returncode}")
-        print(r.stderr[-2000:] if r.stderr else "")
-    return r.returncode == 0, count
-
-
-def make_repo_engine():
-    clock = FakeClock()
-    engine = Engine(FakeGateway([]), clock, merchant="YELLOW-MVP")
-    add_repo_plans(engine)
-    return engine, clock
-
-
-def deliver_sequence(adapter, source_ip, sequence):
-    """Deliver a sequence of fixtures; return the engine sub status.
-
-    Each sequence item is a fixture filename, or a (fixture, event_override)
-    tuple for CCBill informational events that have no fixture file (the
-    CCBill wire carries eventType in both body and query; the override is
-    applied to both so verify()'s query/body match check still passes).
-    Verotel fixtures are never mutated: its SHA-256 signature covers the
-    params.
-
-    Returns the sole sub's status, the active sub's status after a Verotel
-    plan_change (old closed + new active), or None when no subscription was
-    created (e.g. NewSaleFailure).
-    """
-    engine, _ = make_repo_engine()
-    sim = adapter.simulator()
-    for item in sequence:
-        if isinstance(item, tuple):
-            fixture, event_override = item
-            raw = sim.craft(fixture,
-                            mutate=lambda p: p.update(eventType=event_override))
-            # CCBill query_for reads the fixture's eventType; the HTTP layer
-            # would carry the mutated value — thread it through explicitly.
-            query = {"eventType": event_override}
-        else:
-            fixture = item
-            raw = sim.craft(fixture)
-            query = sim.query_for(fixture)
-        out = adapter.deliver(engine, raw, source_ip, query=query)
-        label = item if isinstance(item, str) else f"{item[0]}->{item[1]}"
-        assert out.verdict in ("accepted", "duplicate", "ignored",
-                               "pending", "quarantined"), (
-            f"{label}: unexpected verdict {out.verdict} notes={out.notes}")
-    subs = list(engine.subs.values())
-    if not subs:
-        return None
-    if len(subs) == 1:
-        return subs[0].status
-    active = [s for s in subs if s.status == "active"]
-    assert len(active) == 1, (
-        f"expected 1 active sub after plan_change, got {len(active)}")
-    return "active"
-
-
-# (provider, setup fixtures, event fixture, expected outcome key)
-# event fixture may be a filename or a (filename, eventType-override) tuple
-# (CCBill informational events have no fixture files; see deliver_sequence).
-BINDING_SEQUENCES = [
-    # MobiusPay lane == CCBill adapter (14/14 KNOWN_EVENTS)
-    ("ccbill", [], "ccbill_new_sale_success.json", ("ccbill", "NewSaleSuccess")),
-    ("ccbill", [], "ccbill_new_sale_failure.json", ("ccbill", "NewSaleFailure")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_renewal_success.json", ("ccbill", "RenewalSuccess")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_renewal_failure.json", ("ccbill", "RenewalFailure")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_cancellation.json", ("ccbill", "Cancellation")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_expiration.json", ("ccbill", "Expiration")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_chargeback.json", ("ccbill", "Chargeback")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_refund.json", ("ccbill", "Refund")),
-    ("ccbill", ["ccbill_new_sale_success.json"], "ccbill_void.json", ("ccbill", "Void")),
-    ("ccbill", ["ccbill_new_sale_success.json"], ("ccbill_new_sale_success.json", "UpgradeSuccess"), ("ccbill", "UpgradeSuccess")),
-    ("ccbill", ["ccbill_new_sale_success.json"], ("ccbill_new_sale_success.json", "UpgradeFailure"), ("ccbill", "UpgradeFailure")),
-    ("ccbill", ["ccbill_new_sale_success.json"], ("ccbill_new_sale_success.json", "BillingDateChange"), ("ccbill", "BillingDateChange")),
-    ("ccbill", ["ccbill_new_sale_success.json"], ("ccbill_new_sale_success.json", "CustomerDataUpdate"), ("ccbill", "CustomerDataUpdate")),
-    ("ccbill", ["ccbill_new_sale_success.json"], ("ccbill_new_sale_success.json", "UserReactivation"), ("ccbill", "UserReactivation")),
-    # Verotel (10/10 KNOWN_EVENTS)
-    ("verotel", [], "verotel_initial.json", ("verotel", "initial")),
-    ("verotel", ["verotel_initial.json"], "verotel_rebill.json", ("verotel", "rebill")),
-    ("verotel", ["verotel_initial.json"], "verotel_extend.json", ("verotel", "extend")),
-    ("verotel", ["verotel_initial.json"], "verotel_uncancel.json", ("verotel", "uncancel")),
-    ("verotel", ["verotel_initial.json"], "verotel_cancel.json", ("verotel", "cancel")),
-    ("verotel", ["verotel_initial.json"], "verotel_downgrade.json", ("verotel", "downgrade")),
-    ("verotel", ["verotel_initial.json"], "verotel_upgrade.json", ("verotel", "upgrade")),
-    ("verotel", ["verotel_initial.json"], "verotel_expiry.json", ("verotel", "expiry")),
-    ("verotel", ["verotel_initial.json"], "verotel_chargeback.json", ("verotel", "chargeback")),
-    ("verotel", ["verotel_initial.json"], "verotel_credit_terminated.json", ("verotel", "credit")),
+# Repo-specific negative-path sequence (the repo's own finding, as data):
+# the verotel upgrade fixture bills plan "p2" ($19.99), which is NOT in
+# the repo catalog — the receiver must fail closed (rejected + operator
+# alert). EXPECTED for the known-plan case stays "success" in the spec.
+NEGATIVE_SEQUENCES = [
+    ("verotel", ["verotel_initial.json"], "verotel_upgrade.json", "rejected"),
 ]
 
 
 def test_lane_terms_arithmetic():
-    """MobiusPay lane terms as pure arithmetic (NOT engine settlement).
-
-    The suite's engine has no fee-ledger surface [OUT-OF-SCOPE — see
-    repo_catalog.py]. This check exercises MOBIUSPAY_LANE_TERMS as
-    documented math from the constants: a $9.99 sale at 9.9% + $0.35,
-    a $25 chargeback cost, and the 5% reserve hold. If the constants
-    drift from the CSO quote, this fails.
-    """
+    """MobiusPay lane terms as pure arithmetic (NOT engine settlement)."""
     t = MOBIUSPAY_LANE_TERMS
     sale_cents = 999  # repo PLAN $9.99/mo
-    # 9.9% of 999c = 98.901c -> 99c (half-up) + 35c = 134c fee
     pct_fee = int(sale_cents * t["rate_pct"] / 100 + 0.5)
     assert pct_fee == 99, f"pct fee: {pct_fee}"
     total_fee = pct_fee + t["per_txn_cents"]
@@ -196,92 +80,62 @@ def test_lane_terms_arithmetic():
     assert t["mc_annual_cents"] == 100000
 
 
-def run_binding_checks():
-    print("\n== repo binding checks (thin wiring) ==")
-    print(f"  catalog: {[(p.id, p.amount_cents) for p in REPO_PLANS]}")
-    check("binding::lane_terms_arithmetic", test_lane_terms_arithmetic)
-    # name -> fixture dict (keys carry the .json extension).
-    # NOTE: load_contract_fixtures() only loads the 11 contract fixtures;
-    # the binding also exercises non-contract fixtures (renewal_failure,
-    # expiration, extend, uncancel, expiry, credit_terminated), so load
-    # every fixture file in the directory.
-    import json as _json
-    by_name = {}
-    _fix_dir = os.path.join(SUITE_DIR, "fixtures")
-    for _fn in sorted(os.listdir(_fix_dir)):
-        if _fn.endswith(".json"):
-            with open(os.path.join(_fix_dir, _fn)) as _fh:
-                by_name[_fn] = _json.load(_fh)
-    for name, make in adapter_factories(by_name):
-        trusted_ip = "10.1.2.3"
-        for provider, setup, event_fixture, key in BINDING_SEQUENCES:
-            if provider != name:
-                continue
-            expected = EXPECTED_OUTCOME[key]
-
-            def one(adapter=make(), setup=setup, event_fixture=event_fixture,
-                    expected=expected, key=key):
-                status = deliver_sequence(adapter, trusted_ip,
-                                          setup + [event_fixture])
-                if status is None:
-                    # No subscription created (e.g. NewSaleFailure): the
-                    # repo never activates; outcome is "failed".
-                    got = "failed"
-                else:
-                    got = shim(status, provider=key[0], event=key[1])
-                assert got == expected, (
-                    f"{key}: engine status {status!r} shims to {got!r}, "
-                    f"expected {expected!r}")
-
-            # Verotel upgrade fixture bills plan "p2" ($19.99), which is NOT
-            # in the repo catalog (p1/basic/plus/studio). The receiver
-            # correctly fails closed (422/rejected + operator alert) on the
-            # unknown plan — this is the suite's merchant-config guard
-            # working as designed against the repo's catalog. Assert the
-            # fail-closed behavior explicitly; it is a FINDING (repo catalog
-            # gap), not a mapping failure. EXPECTED_OUTCOME[upgrade] stays
-            # "success" for the known-plan case.
-            if key == ("verotel", "upgrade"):
-                def one_upgrade(adapter=make(), setup=setup,
-                                event_fixture=event_fixture):
-                    engine, _ = make_repo_engine()
-                    sim = adapter.simulator()
-                    for item in setup + [event_fixture]:
-                        raw = sim.craft(item)
-                        out = adapter.deliver(engine, raw, "10.1.2.3",
-                                              query=sim.query_for(item))
-                    assert out.verdict == "rejected", (
-                        f"upgrade to unknown plan p2 must fail closed, "
-                        f"got {out.verdict}")
-                    assert any("reconciliation" in n for n in out.notes), (
-                        f"expected operator alert note, got {out.notes}")
-                check(f"binding::{name}::{key[1]}->fail_closed_unknown_plan",
-                      one_upgrade)
-            else:
-                check(f"binding::{name}::{key[1]}->{expected}", one)
-
-
 def main():
-    ok1, suite_count = run_existing_battery(os.path.join(SUITE_DIR, "run_all.py"),
-                               "full suite battery — STANDALONE, not repo-bound")
-    ok2, contract_count = run_existing_battery(os.path.join(SUITE_DIR, "run_adapter_contract.py"),
-                               "adapter contract battery — STANDALONE, not repo-bound")
-    run_binding_checks()
-    passed = sum(1 for _, ok, _ in RESULTS if ok)
-    total = len(RESULTS)
-    print(f"\nbinding checks: {passed}/{total} green")
-    for name, ok, err in RESULTS:
-        if not ok:
-            print(f"  MISMATCH: {name}: {err}")
-    all_ok = ok1 and ok2 and passed == total
-    print("\nEVIDENCE SUMMARY (honest labels):")
-    print(f"  suite standalone (NOT repo-bound): {suite_count}" if ok1
-          else "  suite standalone: FAILED")
-    print(f"  contract standalone (NOT repo-bound): {contract_count}" if ok2
-          else "  contract standalone: FAILED")
-    print(f"  repo binding evidence: {passed}/{total}")
-    print("OVERALL:", "GREEN" if all_ok else "RED")
-    sys.exit(0 if all_ok else 1)
+    ok1, suite_count = run_battery_counts(
+        os.path.join(SUITE_DIR, "run_all.py"),
+        "full suite battery — STANDALONE, not repo-bound")
+    ok2, contract_count = run_battery_counts(
+        os.path.join(SUITE_DIR, "run_adapter_contract.py"),
+        "adapter contract battery — STANDALONE, not repo-bound")
+
+    spec = build_spec()
+    factories = load_fixture_factories(SUITE_DIR)
+
+    print("\n== repo binding checks (toolkit) ==")
+    print(f"  catalog: {[(p[0], p[2]) for p in PLANS]}")
+    results = run_binding_checks(spec, factories,
+                                 SEQUENCES + NEGATIVE_SEQUENCES,
+                                 source_ip="10.1.2.3")
+    # Repo-specific facts (the repo's own assertions, not toolkit
+    # mechanics): lane-terms arithmetic.
+    try:
+        test_lane_terms_arithmetic()
+        results.append(("binding::lane_terms_arithmetic", True, ""))
+        print("  PASS  binding::lane_terms_arithmetic")
+    except AssertionError as e:
+        results.append(("binding::lane_terms_arithmetic", False, str(e)))
+        print(f"  FAIL  binding::lane_terms_arithmetic: {e}")
+    for name, ok, detail in results:
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}"
+              + (f": {detail}" if detail and not ok else ""))
+    passed = sum(1 for _, ok, _ in results if ok)
+    print(f"binding checks: {passed}/{len(results)}")
+
+    report = spec.check_conformance()
+    print(f"conformance: {'clean' if report.is_clean else 'GAPS FOUND'} "
+          f"(unmapped={len(report.unmapped_events)}, "
+          f"missing={len(report.missing_states)}, "
+          f"lossy={len(report.lossy_mappings)})")
+
+    ev = EvidenceReport()
+    for ok_c, count, label in [
+        (ok1, suite_count, "suite standalone (NOT repo-bound)"),
+        (ok2, contract_count, "contract standalone (NOT repo-bound)"),
+    ]:
+        try:
+            p, t = (int(x) for x in count.split("/"))
+        except ValueError:
+            p, t = 0, 1
+        ev.add_group(label, p if ok_c else 0, t)
+    ev.add_group("repo binding evidence", passed, len(results))
+    ev.add_conformance("yellow-spicychat-mvp", report)
+    print()
+    print(ev.render())
+    # S5 (2026-10-02 review): exit 0 with GAPS FOUND means the gaps were
+    # surfaced in this report — acceptance is the human sign-off
+    # recorded in notes/, not this exit code. A gap nobody read is not
+    # an accepted gap.
+    sys.exit(0 if ev.all_green() else 1)
 
 
 if __name__ == "__main__":
