@@ -2,8 +2,11 @@
 """Repo binding run: prove the existing suite green against the repo's catalog.
 
 What this does (in order):
-  1. Runs the FULL existing battery as-is (tests/subscription/run_all.py,
-     156 tests) via subprocess — unmodified.
+  1. Runs the FULL existing battery as-is (tests/subscription/run_all.py)
+     via subprocess — unmodified. The count is parsed from the battery's
+     own summary line, never hardcoded (a hardcoded count rots the moment
+     the suite gains a test — caught 2026-10-02: the summary said 156/156
+     while the suite ran 159).
   2. Runs the adapter contract battery as-is
      (tests/subscription/run_adapter_contract.py) via subprocess — unmodified.
   3. Repo-binding checks (this file): builds a suite Engine carrying the
@@ -20,6 +23,7 @@ Usage:  python3 tests/billing/run_repo_binding.py
         (from the repo root; SUITE_DIR env may override the suite path)
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -62,15 +66,24 @@ def check(name, fn):
 
 
 def run_existing_battery(path, label):
+    """Run an existing suite battery as-is.
+
+    Returns (ok, count_str): count_str is parsed from the battery's own
+    summary line (e.g. "159/159"), never hardcoded.
+    """
     print(f"\n== {label} (as-is) ==")
     r = subprocess.run([sys.executable, path], capture_output=True, text=True,
                        cwd=os.path.dirname(path))
     tail = "\n".join(r.stdout.strip().splitlines()[-4:])
     print(tail)
+    count = "?"
+    m = re.search(r"(\d+)/(\d+) green", r.stdout)
+    if m:
+        count = f"{m.group(1)}/{m.group(2)}"
     if r.returncode != 0:
         print(f"!! {label} exited {r.returncode}")
         print(r.stderr[-2000:] if r.stderr else "")
-    return r.returncode == 0
+    return r.returncode == 0, count
 
 
 def make_repo_engine():
@@ -249,9 +262,9 @@ def run_binding_checks():
 
 
 def main():
-    ok1 = run_existing_battery(os.path.join(SUITE_DIR, "run_all.py"),
-                               "full suite battery (156) — STANDALONE, not repo-bound")
-    ok2 = run_existing_battery(os.path.join(SUITE_DIR, "run_adapter_contract.py"),
+    ok1, suite_count = run_existing_battery(os.path.join(SUITE_DIR, "run_all.py"),
+                               "full suite battery — STANDALONE, not repo-bound")
+    ok2, contract_count = run_existing_battery(os.path.join(SUITE_DIR, "run_adapter_contract.py"),
                                "adapter contract battery — STANDALONE, not repo-bound")
     run_binding_checks()
     passed = sum(1 for _, ok, _ in RESULTS if ok)
@@ -262,9 +275,9 @@ def main():
             print(f"  MISMATCH: {name}: {err}")
     all_ok = ok1 and ok2 and passed == total
     print("\nEVIDENCE SUMMARY (honest labels):")
-    print("  suite standalone (NOT repo-bound): 156/156" if ok1
+    print(f"  suite standalone (NOT repo-bound): {suite_count}" if ok1
           else "  suite standalone: FAILED")
-    print("  contract standalone (NOT repo-bound): 26/26" if ok2
+    print(f"  contract standalone (NOT repo-bound): {contract_count}" if ok2
           else "  contract standalone: FAILED")
     print(f"  repo binding evidence: {passed}/{total}")
     print("OVERALL:", "GREEN" if all_ok else "RED")
