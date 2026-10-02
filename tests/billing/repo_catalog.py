@@ -16,10 +16,22 @@ runs wire amounts against these plans.
 import os
 import sys
 
-sys.path.insert(0, os.path.normpath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "..",
-    "payment-proving-ground", "tests", "subscription")))
+
+def resolve_suite_dir():
+    """Single source of truth for the proving-ground suite location.
+
+    SUITE_DIR env overrides; default is the sibling payment-proving-ground
+    checkout. Import this — do not hardcode the path elsewhere.
+    """
+    return os.environ.get(
+        "SUITE_DIR",
+        os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "..", "..",
+            "payment-proving-ground", "tests", "subscription")))
+
+
+sys.path.insert(0, resolve_suite_dir())
 
 from engine import Plan  # noqa: E402
 
@@ -35,8 +47,17 @@ REPO_PLANS = [
 ]
 
 # MobiusPay quoted lane terms [REAL — CSO email 2026-10-01].
-# Metadata only: recorded here so the binding documents which commercial
-# terms the $9.99 wire amount was quoted under. The suite never charges.
+# Recorded here so the binding documents which commercial terms the $9.99
+# wire amount was quoted under. The suite never charges.
+#
+# [OUT-OF-SCOPE — 2026-10-01] The suite's engine has NO fee-ledger surface:
+# it books gross wire amounts and never computes provider fees, reserves,
+# or chargeback costs. These terms are therefore exercised only as pure
+# arithmetic in run_repo_binding.py::test_lane_terms_arithmetic (verifying
+# the documented math from the constants), NOT as engine settlement
+# behavior. Full fee-settlement coverage would need an engine fee ledger
+# (future work) — until then, fee math is validated as documented
+# constants, nothing more.
 MOBIUSPAY_LANE_TERMS = {
     "rate_pct": 9.9,
     "per_txn_cents": 35,

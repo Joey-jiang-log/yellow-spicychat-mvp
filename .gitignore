@@ -15,3 +15,4 @@ public/uploads/*
 !public/uploads/.gitkeep
 .vercel
 .env*
+**/__pycache__/

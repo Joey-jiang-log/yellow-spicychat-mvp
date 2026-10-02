@@ -31,3 +31,32 @@ edited to make the binding pass.
 Everything here is **[SIM]** — synthetic fixtures through real plumbing.
 Zero live credentials; the suite's adapters run under `posture="sandbox"`
 with TEST literals.
+
+### Honest scope labels
+
+- **Suite standalone (NOT repo-bound): 156/156** — the proving-ground
+  battery run as-is. It validates the suite's own engine and adapters,
+  not this repo.
+- **Contract standalone (NOT repo-bound): 26/26** — the adapter contract
+  battery run as-is. Same caveat.
+- **Repo binding evidence: N/N** — the binding checks in
+  `run_repo_binding.py`: the repo's real plan catalog driven through the
+  real adapters, shimmed into the repo's `DemoBillingOutcome` vocabulary.
+  This is the only number that speaks to the repo.
+
+### Yearly-price scope [2026-10-01]
+
+The catalog binds **monthly** prices only (`domain.ts` PLAN $9.99/mo;
+`pricing-data.ts` Basic $7.50 / Plus $16 / Studio $36 as monthly
+equivalents). Yearly equivalents and the display tiers' yearly billing
+are **out of scope** for this binding: the suite's price book checks
+wire amounts against monthly plan prices, and no yearly-billing wire
+shape was exercised. Extending to yearly would need yearly plan entries
+plus fixtures billing the yearly amounts.
+
+### MobiusPay lane terms scope [2026-10-01]
+
+`MOBIUSPAY_LANE_TERMS` records the CSO-quoted terms [REAL]. The suite's
+engine has no fee-ledger surface, so fee settlement is **[OUT-OF-SCOPE]**:
+the binding verifies the terms only as pure arithmetic from the
+constants (`test_lane_terms_arithmetic`), not as engine behavior.
